@@ -1,0 +1,24 @@
+baseline_packages:
+  - ca-certificates
+  - curl
+  - jq
+  - gnupg
+  - apt-transport-https
+  - software-properties-common
+  - unzip
+  - tar
+  - git
+  - net-tools
+  - iptables
+  - socat
+  - conntrack
+
+journald_system_max_use: "200M"
+journald_runtime_max_use: "50M"
+
+sysctl_settings:
+  net.ipv4.ip_forward: "1"
+  net.bridge.bridge-nf-call-iptables: "1"
+  net.bridge.bridge-nf-call-ip6tables: "1"
+  fs.inotify.max_user_instances: "8192"
+  fs.inotify.max_user_watches: "1048576"

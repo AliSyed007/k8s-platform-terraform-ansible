@@ -1,0 +1,87 @@
+- name: Wait for SSH to become ready
+  ansible.builtin.wait_for_connection:
+    timeout: 180
+
+- name: Gather facts
+  ansible.builtin.setup:
+
+- name: Ensure apt cache is updated (deterministic)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install baseline packages (minimal)
+  ansible.builtin.apt:
+    name: "{{ baseline_packages }}"
+    state: present
+
+- name: Disable swap immediately (safe even if already off)
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+
+- name: Comment out swap entries in /etc/fstab (prevents swap re-enable on reboot)
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(.*\sswap\s.*)$'
+    replace: '# \1'
+  register: fstab_swap
+  failed_when: false
+
+- name: Ensure br_netfilter module is loaded (for Kubernetes networking later)
+  ansible.builtin.modprobe:
+    name: br_netfilter
+    state: present
+
+- name: Persist sysctl settings needed for Kubernetes later
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop: "{{ sysctl_settings | dict2items }}"
+
+- name: Create journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
+
+- name: Configure journald disk usage limits (t3.micro guardrail)
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/99-k3s-platform.conf
+    mode: "0644"
+    content: |
+      [Journal]
+      SystemMaxUse={{ journald_system_max_use }}
+      RuntimeMaxUse={{ journald_runtime_max_use }}
+  notify: Restart journald
+
+- name: Install and enable ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: UFW default deny incoming
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: UFW default allow outgoing
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Allow SSH (OpenSSH profile)
+  community.general.ufw:
+    rule: allow
+    name: OpenSSH
+
+- name: Allow HTTP 80
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+
+- name: Enable UFW (non-interactive)
+  community.general.ufw:
+    state: enabled

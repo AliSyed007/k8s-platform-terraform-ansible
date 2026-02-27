@@ -1,0 +1,7 @@
+- name: Baseline hardening for single-node k3s host
+  hosts: k3s
+  become: true
+  serial: 1
+
+  roles:
+    - baseline

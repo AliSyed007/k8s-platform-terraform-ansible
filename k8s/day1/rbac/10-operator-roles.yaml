@@ -1,0 +1,33 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: operator-readwrite
+  namespace: ops
+rules:
+  # Basic day-to-day ops in ops namespace
+  - apiGroups: [""]
+    resources: ["pods","pods/log","services","endpoints","configmaps","secrets","events","serviceaccounts"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments","replicasets","statefulsets","daemonsets"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs","cronjobs"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: operator-readonly
+  namespace: apps
+rules:
+  # Operator can observe apps namespace, but not change it (safer baseline)
+  - apiGroups: [""]
+    resources: ["pods","pods/log","services","endpoints","configmaps","events"]
+    verbs: ["get","list","watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments","replicasets","statefulsets","daemonsets"]
+    verbs: ["get","list","watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs","cronjobs"]
+    verbs: ["get","list","watch"]

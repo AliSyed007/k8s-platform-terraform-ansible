@@ -1,0 +1,38 @@
+---
+- name: Ensure curl is present (installer dependency)
+  ansible.builtin.apt:
+    name: curl
+    state: present
+    update_cache: true
+  become: true
+
+- name: Build K3s disable flags
+  ansible.builtin.set_fact:
+    k3s_disable_flags: "{{ k3s_disable | map('regex_replace', '^(.*)$', '--disable=\\1') | list }}"
+  changed_when: false
+
+- name: Download and install K3s server (pinned version, deterministic)
+  ansible.builtin.shell: |
+    set -eu
+    curl -sfL https://get.k3s.io | \
+      INSTALL_K3S_VERSION="{{ k3s_version }}" \
+      INSTALL_K3S_EXEC="server {{ k3s_disable_flags | join(' ') }}" \
+      sh -
+  args:
+    executable: /bin/sh
+  become: true
+  register: k3s_install
+  changed_when: "'Installed K3s' in (k3s_install.stdout + k3s_install.stderr) or 'installed' in (k3s_install.stdout + k3s_install.stderr) | lower"
+
+- name: Ensure K3s service is enabled and started
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started
+  become: true
+
+- name: Ensure kubeconfig is world-readable (single-node lab convenience; still SSH-only access)
+  ansible.builtin.file:
+    path: "{{ k3s_kubeconfig_path }}"
+    mode: "{{ k3s_kubeconfig_mode }}"
+  become: true

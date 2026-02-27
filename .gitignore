@@ -1,0 +1,21 @@
+# Local secrets
+/keys/
+/ssh/known_hosts
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+.crash.log
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# OS/editor
+.DS_Store
+.vscode/

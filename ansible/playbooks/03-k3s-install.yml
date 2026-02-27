@@ -1,0 +1,8 @@
+---
+- name: Step 5 - Install K3s (single-node)
+  hosts: all
+  become: true
+  gather_facts: true
+
+  roles:
+    - k3s_install

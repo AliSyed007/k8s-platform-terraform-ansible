@@ -1,0 +1,15 @@
+---
+# Minimal, safe defaults for a single-node (t3.micro) K3s prep.
+
+k3s_prep_required_modules:
+  - overlay
+  - br_netfilter
+
+k3s_prep_sysctls:
+  - { name: "net.ipv4.ip_forward", value: "1" }
+  - { name: "net.bridge.bridge-nf-call-iptables", value: "1" }
+  - { name: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+
+# t3.micro stability guardrail: prefer keeping system responsive under memory pressure
+# (systemd-oomd is enabled by default on Ubuntu 22.04; we keep it enabled)
+k3s_prep_enable_systemd_oomd: true

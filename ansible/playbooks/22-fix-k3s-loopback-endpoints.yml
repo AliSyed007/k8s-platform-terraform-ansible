@@ -1,0 +1,109 @@
+---
+- name: Phase 17 | Fix k3s loopback bind/advertise via systemd drop-in
+  hosts: k3s
+  become: true
+  gather_facts: true
+
+  vars:
+    k3s_internal_ip: "{{ ansible_default_ipv4.address }}"
+    dropin_dir: /etc/systemd/system/k3s.service.d
+    dropin_file: /etc/systemd/system/k3s.service.d/10-non-loopback.conf
+
+  tasks:
+    - name: Gate A | Assert internal IP fact is present
+      ansible.builtin.assert:
+        that:
+          - k3s_internal_ip is match('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+          - k3s_internal_ip != "127.0.0.1"
+        fail_msg: "Internal IP not detected correctly (got: {{ k3s_internal_ip }})"
+
+    - name: Apply | Ensure systemd drop-in directory exists
+      ansible.builtin.file:
+        path: "{{ dropin_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Apply | Install drop-in that overrides ExecStart (remove loopback bind/advertise)
+      ansible.builtin.copy:
+        dest: "{{ dropin_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Service]
+          # Override the unit's hardcoded ExecStart that forces loopback endpoints.
+          # Keep tls-san 127.0.0.1 for SSH tunnel kubeconfig access.
+          ExecStart=
+          ExecStart=/usr/local/bin/k3s server \
+            --disable traefik \
+            --disable servicelb \
+            --disable metrics-server \
+            --write-kubeconfig-mode 600 \
+            --advertise-address {{ k3s_internal_ip }} \
+            --node-ip {{ k3s_internal_ip }} \
+            --tls-san 127.0.0.1
+
+    - name: Apply | Reload systemd
+      ansible.builtin.command: systemctl daemon-reload
+      changed_when: false
+
+    - name: Apply | Restart k3s
+      ansible.builtin.service:
+        name: k3s
+        state: restarted
+
+    # ---------------- Verification gates ----------------
+
+    - name: Gate 1 | Wait for k3s service to become active
+      ansible.builtin.command: systemctl is-active k3s
+      register: k3s_active
+      retries: 30
+      delay: 2
+      until: k3s_active.stdout.strip() == "active"
+      changed_when: false
+
+    - name: Gate 2 | Wait for apiserver readiness (/readyz)
+      ansible.builtin.command: k3s kubectl get --raw=/readyz
+      register: readyz
+      retries: 30
+      delay: 2
+      until: readyz.rc == 0
+      changed_when: false
+
+    - name: Gate 3 | Kubernetes service must exist
+      ansible.builtin.command: k3s kubectl get svc kubernetes -n default -o wide
+      register: svc_kubernetes
+      retries: 12
+      delay: 2
+      until: svc_kubernetes.rc == 0
+      changed_when: false
+
+    - name: Gate 4 | Wait for endpoints object to exist
+      ansible.builtin.command: k3s kubectl get endpoints kubernetes -n default -o wide
+      register: ep_kubernetes
+      retries: 30
+      delay: 2
+      until: ep_kubernetes.rc == 0
+      changed_when: false
+
+    - name: Gate 5 | Endpoints must not be loopback
+      ansible.builtin.assert:
+        that:
+          - ep_kubernetes.stdout is not search("127\.0\.0\.1")
+          - ep_kubernetes.stdout is search("6443")
+        fail_msg: |
+          kubernetes endpoints still wrong:
+          {{ ep_kubernetes.stdout }}
+
+    - name: Gate 6 | kube-system pods should become healthy (coredns + local-path-provisioner)
+      ansible.builtin.command: k3s kubectl -n kube-system get pods -o wide
+      register: kube_system_pods
+      retries: 45
+      delay: 2
+      until: >
+        kube_system_pods.rc == 0 and
+        (kube_system_pods.stdout is search("coredns") and kube_system_pods.stdout is search("Running")) and
+        (kube_system_pods.stdout is search("local-path-provisioner") and kube_system_pods.stdout is search("Running"))
+      changed_when: false

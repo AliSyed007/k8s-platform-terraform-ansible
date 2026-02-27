@@ -1,0 +1,18 @@
+---
+- name: Preflight - SSH connectivity and identity correctness
+  hosts: k3s
+  gather_facts: false
+  any_errors_fatal: true
+
+  tasks:
+    - name: Verify we can run commands as ubuntu
+      ansible.builtin.command: whoami
+      changed_when: false
+      register: who
+
+    - name: Gate - must be ubuntu
+      ansible.builtin.assert:
+        that:
+          - who.stdout == "ubuntu"
+        fail_msg: "SSH connected, but not as ubuntu. Check ansible_user and AMI assumptions."
+        success_msg: "SSH preflight OK: connected as ubuntu."

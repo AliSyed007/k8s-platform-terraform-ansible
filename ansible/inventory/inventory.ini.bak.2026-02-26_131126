@@ -1,0 +1,3 @@
+[k3s]
+# IP is injected by a command below
+k3s-1 ansible_host=3.79.57.201 ansible_user=ubuntu ansible_ssh_private_key_file=/home/mahmeer/k8s-platform-terraform-ansible/keys/k3s_ed25519

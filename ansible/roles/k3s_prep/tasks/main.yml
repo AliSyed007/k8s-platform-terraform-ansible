@@ -1,0 +1,72 @@
+---
+# K3s preparation (no install). Safe for t3.micro and idempotent.
+
+- name: Ensure required packages for Kubernetes networking are present
+  ansible.builtin.apt:
+    name:
+      - iptables
+      - iptables-persistent
+      - ca-certificates
+      - curl
+    state: present
+    update_cache: true
+  become: true
+
+- name: Ensure swap is disabled (runtime)
+  ansible.builtin.command: swapoff -a
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Remove any swap entries from /etc/fstab (Kubernetes requirement)
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^\s*[^#]\S+\s+\S+\s+swap\s+.*$'
+    replace: '# \g<0>'
+  become: true
+
+- name: Persist required kernel modules for container runtime + kube networking
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k3s.conf
+    content: |
+      {% for m in k3s_prep_required_modules %}
+      {{ m }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Load required kernel modules now
+  ansible.builtin.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ k3s_prep_required_modules }}"
+  become: true
+
+- name: Apply Kubernetes networking sysctls persistently
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-k3s.conf
+    content: |
+      {% for s in k3s_prep_sysctls %}
+      {{ s.name }} = {{ s.value }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload sysctl
+
+- name: Gather service facts (for optional systemd-oomd)
+  ansible.builtin.service_facts:
+  become: true
+
+- name: Ensure systemd-oomd is enabled for low-memory stability (t3.micro guardrail)
+  ansible.builtin.systemd:
+    name: systemd-oomd
+    enabled: true
+    state: started
+  become: true
+  when:
+    - k3s_prep_enable_systemd_oomd | bool
+    - "'systemd-oomd.service' in ansible_facts.services"

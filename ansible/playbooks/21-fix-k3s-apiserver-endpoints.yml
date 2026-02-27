@@ -1,0 +1,59 @@
+---
+- name: Fix k3s API advertise/bind so in-cluster kubernetes service endpoints exist
+  hosts: k3s
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+
+  tasks:
+    - name: Write k3s config (bind/advertise on node internal IP)
+      ansible.builtin.copy:
+        dest: /etc/rancher/k3s/config.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Production guardrail:
+          # - API must be reachable from pods via kubernetes.default service (ClusterIP)
+          # - We still keep AWS SG closed on 6443; external access remains SSH-tunneled.
+          disable:
+            - traefik
+            - servicelb
+            - metrics-server
+          write-kubeconfig-mode: "600"
+
+          # Use the node's internal interface for in-cluster reachability
+          node-ip: "{{ ansible_default_ipv4.address }}"
+          advertise-address: "{{ ansible_default_ipv4.address }}"
+          bind-address: "0.0.0.0"
+
+          # Keep TLS SAN for localhost so the SSH tunnel kubeconfig still works
+          tls-san:
+            - "127.0.0.1"
+            - "localhost"
+
+    - name: Restart k3s
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+        enabled: true
+
+    - name: Wait for API to respond locally on node
+      ansible.builtin.command: k3s kubectl get nodes
+      register: out
+      retries: 12
+      delay: 5
+      until: out.rc == 0
+      changed_when: false
+
+    - name: Gate - node must be Ready
+      ansible.builtin.command: k3s kubectl get nodes --no-headers
+      register: nodes
+      changed_when: false
+
+    - name: Assert Ready
+      ansible.builtin.assert:
+        that:
+          - "' Ready ' in nodes.stdout"
+        fail_msg: "k3s did not come back Ready after config change."
+        success_msg: "k3s restarted and node is Ready."
